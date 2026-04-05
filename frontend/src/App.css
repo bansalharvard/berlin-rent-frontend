@@ -1,34 +1,354 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* App-specific styles */
+
+/* Main layout */
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+/* Header */
+.app-header {
+  height: 64px;
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+/* Main content area */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
-.App-link {
-    color: #61dafb;
+@media (min-width: 1024px) {
+  .main-content {
+    flex-direction: row;
+  }
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Map section */
+.map-section {
+  height: 50vh;
+  position: relative;
+}
+
+@media (min-width: 1024px) {
+  .map-section {
+    height: calc(100vh - 64px);
+    width: 55%;
+    position: sticky;
+    top: 64px;
+  }
+}
+
+/* Listings section */
+.listings-section {
+  flex: 1;
+  background-color: var(--background);
+  overflow-y: auto;
+}
+
+@media (min-width: 1024px) {
+  .listings-section {
+    width: 45%;
+    height: calc(100vh - 64px);
+    border-left: 1px solid var(--border);
+  }
+}
+
+/* Filter bar */
+.filter-bar {
+  padding: 1rem 1.5rem;
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+/* Listing card */
+.listing-card {
+  padding: 1.5rem;
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: transform 150ms ease-linear, box-shadow 150ms ease-linear;
+}
+
+.listing-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 4px 4px 0px rgba(10, 10, 10, 0.1);
+}
+
+.listing-card.highlighted {
+  background-color: #FFF5F2;
+  border-left: 3px solid var(--accent-primary);
+}
+
+/* Price display */
+.price-large {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1.75rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.price-sqm {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+/* Map pin popup */
+.map-popup {
+  min-width: 200px;
+  padding: 0;
+}
+
+.map-popup .popup-header {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.map-popup .popup-body {
+  padding: 0.75rem;
+}
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/* Loading spinner */
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Overpaying indicator */
+.overpaying-indicator {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.overpaying-indicator.good-deal {
+  border-color: var(--success);
+  background-color: rgba(5, 150, 105, 0.05);
+}
+
+.overpaying-indicator.fair {
+  border-color: var(--border);
+  background-color: var(--surface);
+}
+
+.overpaying-indicator.overpaying {
+  border-color: var(--accent-primary);
+  background-color: rgba(255, 56, 0, 0.05);
+}
+
+/* Mobile bottom sheet */
+.mobile-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: var(--surface);
+  border-top: 1px solid var(--border);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  z-index: 1000;
+  transform: translateY(calc(100% - 80px));
+  transition: transform 300ms ease-out;
+}
+
+.mobile-sheet.expanded {
+  transform: translateY(0);
+}
+
+/* Stats bar */
+.stats-bar {
+  display: flex;
+  gap: 2rem;
+  padding: 1rem 1.5rem;
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--text-secondary);
+}
+
+/* Vote buttons */
+.vote-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 150ms ease-linear;
+}
+
+.vote-btn:hover {
+  border-color: var(--text-primary);
+}
+
+.vote-btn.upvote:hover {
+  background-color: rgba(5, 150, 105, 0.1);
+  border-color: var(--success);
+}
+
+.vote-btn.downvote:hover {
+  background-color: rgba(220, 38, 38, 0.1);
+  border-color: var(--danger);
+}
+
+/* Form modal */
+.form-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(10, 10, 10, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 1rem;
+}
+
+.form-content {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  width: 100%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.form-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.form-body {
+  padding: 1.5rem;
+}
+
+.form-footer {
+  padding: 1.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+/* Form field */
+.form-field {
+  margin-bottom: 1.5rem;
+}
+
+.form-field label {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.form-field input,
+.form-field select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.form-field input:focus,
+.form-field select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(255, 56, 0, 0.1);
+}
+
+/* Heatmap legend */
+.heatmap-legend {
+  position: absolute;
+  bottom: 2rem;
+  left: 1rem;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  padding: 0.75rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.625rem;
+  z-index: 1000;
+}
+
+.legend-gradient {
+  height: 8px;
+  width: 120px;
+  background: linear-gradient(to right, var(--heat-low), var(--heat-high));
+  margin: 0.5rem 0;
+}
+
+.legend-labels {
+  display: flex;
+  justify-content: space-between;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
