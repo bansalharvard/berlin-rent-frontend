@@ -1,0 +1,99 @@
+{
+  "project_name": "Berlin.rent",
+  "theme": "LIGHT",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "vibe": "Utilitarian, brutally transparent, clean. Inspired by raw data terminals and architectural blueprints. Heavy emphasis on grids, high contrast, and typography.",
+  "colors": {
+    "background": "#FAFAFA",
+    "surface": "#FFFFFF",
+    "text_primary": "#0A0A0A",
+    "text_secondary": "#52525B",
+    "border": "#E4E4E7",
+    "accent_primary": "#FF3800",
+    "accent_hover": "#E63200",
+    "accent_secondary": "#0A0A0A",
+    "success": "#059669",
+    "danger": "#DC2626",
+    "heat_high": "#FF3800",
+    "heat_low": "#3B82F6",
+    "good_deal_indicator": "#059669",
+    "overpaying_indicator": "#FF3800"
+  },
+  "typography": {
+    "font_install_instructions": "yarn add @fontsource/ibm-plex-mono",
+    "headings": {
+      "font_family": "Cabinet Grotesk, sans-serif",
+      "weights": ["400", "800", "900"],
+      "usage": "Use Black/900 for major titles ('berlin.rent'). Use Regular for subheaders. Tight tracking.",
+      "sizes": {
+        "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter leading-none",
+        "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight",
+        "h3": "text-xl sm:text-2xl"
+      }
+    },
+    "body": {
+      "font_family": "IBM Plex Mono, monospace",
+      "weights": ["400", "500", "600"],
+      "usage": "Use for all data points (Rent, Sqm, Year), labels, buttons, and badges. Creates a receipt-like trust.",
+      "sizes": {
+        "data_large": "text-3xl font-mono font-medium tracking-tight",
+        "body": "text-base font-mono",
+        "label": "text-xs font-mono uppercase tracking-[0.2em]"
+      }
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Strict architectural grids. Generous internal padding (p-6, p-8) within tight 1px borders.",
+    "grid_system": "MODE B: The Control Room Grid. 1px borders everywhere. border-collapse on listing feeds.",
+    "container_styles": "Flat backgrounds, 1px subtle border (border-border), NO soft shadows. Sharp corners (rounded-none)."
+  },
+  "surface_strategies": {
+    "cards": "Grid Borders (Technical Look). Expose the skeleton. border-b border-border on list items. Flat white surface, black 1px stroke. No radius.",
+    "header": "Solid White Background with a hard 1px bottom border. No glassmorphism. It should feel like a sticky tool bar.",
+    "inputs": "Sharp 1px borders, focus:ring-2 focus:ring-[#FF3800] focus:outline-none. Background white. Text mono.",
+    "map": "Must use a greyscale or muted monochrome base style (e.g., Carto Positron or Mapbox Light). Map UI controls (zoom, etc.) must be square.",
+    "map_pins": "Solid #FF3800 sharp circles or squares. High contrast against the greyscale map."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Cards slightly lift (-translate-y-1) with a sharp, harsh shadow (shadow-[4px_4px_0px_#0A0A0A]). Borders darken.",
+    "transitions": "Fast, mechanical. transition-transform duration-150 ease-linear.",
+    "map_interactions": "Hovering on a listing card highlights the corresponding map pin (e.g., scales it up and adds a black ring).",
+    "accessibility": "Respect prefers-reduced-motion."
+  },
+  "components": {
+    "buttons": "Sharp rectangles (rounded-none). Primary: bg-[#FF3800] text-white hover:bg-[#E63200] font-mono uppercase text-sm. Secondary: bg-transparent border border-[#0A0A0A] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-white.",
+    "badges": "Square edges, monospaced text. e.g. 'WARMMIETE' badge: bg-[#F4F4F5] text-[#0A0A0A] border border-[#E4E4E7] text-xs px-2 py-1.",
+    "toggle_switch": "Do not use standard pill toggles. Use blocky, segmented controls (side-by-side rectangular buttons where the active one has bg-[#0A0A0A] text-white).",
+    "forms": "Use Shadcn components but force `rounded-none` and monospace fonts for input fields. Labels must be uppercase monospace tracking-[0.2em].",
+    "data_visualizations": "Heatmap overlays should use D3 or Leaflet hexbins with an opacity of 0.6, ranging from Blue (Low) to Red (High)."
+  },
+  "assets": {
+    "images": [
+      {
+        "category": "empty_state_background",
+        "url": "https://images.unsplash.com/photo-1545753204-61aa0137aea1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwxfHxiZXJsaW4lMjBhcmNoaXRlY3R1cmUlMjBtaW5pbWFsfGVufDB8fHx8MTc3NTM4MjgyOXww&ixlib=rb-4.1.0&q=85",
+        "description": "Minimalist Berlin architecture curtain glass, to be used faintly or as an abstract empty state background."
+      },
+      {
+        "category": "placeholder_listing",
+        "url": "https://images.unsplash.com/photo-1594295828534-283d0d5f8e68?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwxfHxiZXJsaW4lMjBhcGFydG1lbnQlMjBpbnRlcmlvcnxlbnwwfHx8fDE3NzUzODI4Mjl8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Clean white apartment interior, useful for 'no images' fallback on property cards."
+      }
+    ],
+    "icons": "Use Phosphor Icons (@phosphor-icons/react) with 'regular' or 'bold' weight. Avoid rounded/soft icon sets."
+  },
+  "instructions_to_main_agent": [
+    "INSTALLATION: yarn add @phosphor-icons/react @fontsource/ibm-plex-mono leaflet react-leaflet",
+    "LAYOUT: Implement a split-screen desktop layout (Map on left 50-60%, Listings grid on right). On mobile, Map is the main view with a draggable bottom sheet or toggle for listings.",
+    "SHADCN MODIFICATIONS: Strip all Shadcn components of their default rounded corners (`rounded-md` -> `rounded-none`). Ensure all shadows are flat/harsh (e.g., `4px 4px 0px #000`) instead of blurred.",
+    "MAP IMPLEMENTATION: Use react-leaflet with a minimal greyscale tile layer (e.g., CartoDB Positron). The map is the hero; do not hide it.",
+    "DATA ENTRY FORM: Create a distinct, slide-out or modal intake form that feels like a 'tax document' - strictly aligned, monospace inputs, no visual fluff.",
+    "ANALYTICS: Implement the 'Am I overpaying' feature using a simple color-coded progress bar or a distinct badge (Green = Below Average, Red = Above Average). Calculate dynamically based on the current viewport's data.",
+    "HEATMAP (BONUS): Integrate a heat layer for price/sqm. High density/expensive = #FF3800, Low = #3B82F6.",
+    "TESTING (CRITICAL): ALL interactive elements (filters, map pins, form inputs, buttons, toggles) MUST have descriptive `data-testid` attributes (e.g., `data-testid='filter-kaltmiete'`)."
+  ],
+  "accessibility_and_testing": {
+    "contrast": "Ensure pure black text against #FAFAFA background for maximum readability of rent data.",
+    "testing_attributes": "Enforce `data-testid` across all interactive elements for robust automated testing."
+  }
+}
