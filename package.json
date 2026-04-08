@@ -61,10 +61,10 @@
     "ajv": "^6.12.6"
   },
   "scripts": {
-    "start": "craco start",
-    "build": "craco build",
-    "test": "craco test"
-  },
+  "start": "react-scripts start",
+  "build": "react-scripts build",
+  "test": "react-scripts test"
+},
   "browserslist": {
     "production": [
       ">0.2%",
