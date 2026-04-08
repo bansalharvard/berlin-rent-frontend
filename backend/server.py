@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
+from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -17,6 +18,9 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# LLM API Key
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -44,54 +48,62 @@ BERLIN_NEIGHBORHOODS = {
 }
 
 # Define Models
-class RentalCreate(BaseModel):
-    neighborhood: str
-    rent_amount: float = Field(ge=0)
-    apartment_size: float = Field(ge=1)
+class ListingCreate(BaseModel):
+    listing_type: str  # "offering" or "looking"
+    lat: float
+    lng: float
+    neighborhood: Optional[str] = None
+    rent_amount: Optional[float] = None
+    apartment_size: Optional[float] = None
     apartment_type: str  # WG room, studio, 1 Zimmer, 2 Zimmer, 3+ Zimmer
     rent_type: str  # warmmiete, kaltmiete
     furnished: Optional[bool] = None
-    contract_type: Optional[str] = None  # temporary, permanent
-    move_in_year: Optional[int] = None
     building_type: Optional[str] = None  # altbau, neubau
+    move_in_date: Optional[str] = None
+    description: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
 
-class Rental(BaseModel):
+class Listing(BaseModel):
     model_config = ConfigDict(extra="ignore")
     
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    neighborhood: str
-    rent_amount: float
-    apartment_size: float
-    apartment_type: str
-    rent_type: str
-    price_per_sqm: float
-    furnished: Optional[bool] = None
-    contract_type: Optional[str] = None
-    move_in_year: Optional[int] = None
-    building_type: Optional[str] = None
+    listing_type: str
     lat: float
     lng: float
-    upvotes: int = 0
-    downvotes: int = 0
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class VoteRequest(BaseModel):
-    vote_type: str  # upvote, downvote
-
-class OverpayingRequest(BaseModel):
     neighborhood: str
-    rent_amount: float
-    apartment_size: float
+    rent_amount: Optional[float] = None
+    apartment_size: Optional[float] = None
     apartment_type: str
     rent_type: str
+    price_per_sqm: Optional[float] = None
+    furnished: Optional[bool] = None
+    building_type: Optional[str] = None
+    move_in_date: Optional[str] = None
+    description: Optional[str] = None
+    ai_description: Optional[str] = None
+    suggested_price: Optional[float] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class OverpayingResponse(BaseModel):
-    your_price_per_sqm: float
-    average_price_per_sqm: float
-    median_price_per_sqm: float
-    difference_percent: float
-    status: str  # good_deal, fair, overpaying
-    similar_listings_count: int
+class AIDescriptionRequest(BaseModel):
+    listing_type: str
+    neighborhood: str
+    apartment_type: str
+    apartment_size: Optional[float] = None
+    rent_amount: Optional[float] = None
+    rent_type: str
+    furnished: Optional[bool] = None
+    building_type: Optional[str] = None
+
+class AIPriceRequest(BaseModel):
+    neighborhood: str
+    apartment_type: str
+    apartment_size: float
+    rent_type: str
+    furnished: Optional[bool] = None
+    building_type: Optional[str] = None
 
 class NeighborhoodStats(BaseModel):
     neighborhood: str
@@ -100,18 +112,101 @@ class NeighborhoodStats(BaseModel):
     lat: float
     lng: float
 
-# Helper function to add jitter to coordinates
-import random
-def add_jitter(lat: float, lng: float) -> tuple:
-    """Add small random offset to prevent pin overlap"""
-    jitter_lat = random.uniform(-0.005, 0.005)
-    jitter_lng = random.uniform(-0.008, 0.008)
-    return lat + jitter_lat, lng + jitter_lng
+# Helper function to find nearest neighborhood
+def find_nearest_neighborhood(lat: float, lng: float) -> str:
+    min_dist = float('inf')
+    nearest = "Mitte"
+    for name, coords in BERLIN_NEIGHBORHOODS.items():
+        dist = ((lat - coords["lat"])**2 + (lng - coords["lng"])**2)**0.5
+        if dist < min_dist:
+            min_dist = dist
+            nearest = name
+    return nearest
 
-# Add your routes to the router
+# AI Helper Functions
+async def generate_ai_description(data: AIDescriptionRequest) -> str:
+    if not EMERGENT_LLM_KEY:
+        return ""
+    
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"desc-{uuid.uuid4()}",
+            system_message="You are a helpful real estate assistant in Berlin. Write concise, friendly listing descriptions in 2-3 sentences. Be specific about the neighborhood character."
+        ).with_model("openai", "gpt-4o-mini")
+        
+        listing_type_text = "rental offering" if data.listing_type == "offering" else "apartment search"
+        furnished_text = "furnished" if data.furnished else "unfurnished" if data.furnished is False else ""
+        building_text = f"{data.building_type} building" if data.building_type else ""
+        
+        prompt = f"""Write a short, appealing description for a {listing_type_text} in Berlin:
+- Location: {data.neighborhood}
+- Type: {data.apartment_type}
+- Size: {data.apartment_size}m² if specified
+- Rent: €{data.rent_amount} {data.rent_type} if specified
+- {furnished_text} {building_text}
+
+Keep it under 50 words, friendly and informative."""
+
+        user_message = UserMessage(text=prompt)
+        response = await chat.send_message(user_message)
+        return response.strip()
+    except Exception as e:
+        logging.error(f"AI description error: {e}")
+        return ""
+
+async def suggest_ai_price(data: AIPriceRequest) -> Optional[float]:
+    # First, get market data from database
+    query = {"neighborhood": data.neighborhood, "rent_type": data.rent_type, "listing_type": "offering"}
+    similar = await db.listings.find(query, {"_id": 0, "price_per_sqm": 1}).to_list(50)
+    
+    if similar and len(similar) >= 3:
+        prices = [s["price_per_sqm"] for s in similar if s.get("price_per_sqm")]
+        if prices:
+            avg_price_per_sqm = sum(prices) / len(prices)
+            # Adjust for furnished/building type
+            multiplier = 1.0
+            if data.furnished:
+                multiplier += 0.15
+            if data.building_type == "neubau":
+                multiplier += 0.10
+            elif data.building_type == "altbau":
+                multiplier -= 0.05
+            
+            suggested = round(avg_price_per_sqm * multiplier * data.apartment_size)
+            return suggested
+    
+    # Fallback: Use AI for estimation if not enough data
+    if EMERGENT_LLM_KEY:
+        try:
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=f"price-{uuid.uuid4()}",
+                system_message="You are a Berlin rental market expert. Provide realistic rent estimates based on 2024-2025 market data. Respond with ONLY a number, no text."
+            ).with_model("openai", "gpt-4o-mini")
+            
+            prompt = f"""Estimate monthly {data.rent_type} rent in EUR for:
+- Berlin {data.neighborhood}
+- {data.apartment_type}, {data.apartment_size}m²
+- {"Furnished" if data.furnished else "Unfurnished"}
+- {data.building_type or "Unknown"} building
+
+Reply with ONLY the number (e.g., 850)."""
+
+            user_message = UserMessage(text=prompt)
+            response = await chat.send_message(user_message)
+            # Extract number from response
+            price = float(''.join(filter(lambda x: x.isdigit() or x == '.', response)))
+            return round(price)
+        except Exception as e:
+            logging.error(f"AI price error: {e}")
+    
+    return None
+
+# Routes
 @api_router.get("/")
 async def root():
-    return {"message": "Berlin.rent API"}
+    return {"message": "Berlin.rent Marketplace API", "database": "MongoDB"}
 
 @api_router.get("/neighborhoods")
 async def get_neighborhoods():
@@ -121,53 +216,88 @@ async def get_neighborhoods():
         for name, coords in BERLIN_NEIGHBORHOODS.items()
     ]
 
-@api_router.post("/rentals", response_model=Rental)
-async def create_rental(rental_data: RentalCreate):
-    """Create a new anonymous rental listing"""
-    if rental_data.neighborhood not in BERLIN_NEIGHBORHOODS:
-        raise HTTPException(status_code=400, detail=f"Unknown neighborhood: {rental_data.neighborhood}")
+@api_router.post("/listings", response_model=Listing)
+async def create_listing(data: ListingCreate):
+    """Create a new listing (offering or looking)"""
+    # Find neighborhood from coordinates
+    neighborhood = data.neighborhood or find_nearest_neighborhood(data.lat, data.lng)
     
-    coords = BERLIN_NEIGHBORHOODS[rental_data.neighborhood]
-    lat, lng = add_jitter(coords["lat"], coords["lng"])
+    # Calculate price per sqm if applicable
+    price_per_sqm = None
+    if data.rent_amount and data.apartment_size:
+        price_per_sqm = round(data.rent_amount / data.apartment_size, 2)
     
-    price_per_sqm = round(rental_data.rent_amount / rental_data.apartment_size, 2)
+    # Generate AI description if not provided
+    ai_description = None
+    if not data.description:
+        ai_desc_request = AIDescriptionRequest(
+            listing_type=data.listing_type,
+            neighborhood=neighborhood,
+            apartment_type=data.apartment_type,
+            apartment_size=data.apartment_size,
+            rent_amount=data.rent_amount,
+            rent_type=data.rent_type,
+            furnished=data.furnished,
+            building_type=data.building_type
+        )
+        ai_description = await generate_ai_description(ai_desc_request)
     
-    rental = Rental(
-        neighborhood=rental_data.neighborhood,
-        rent_amount=rental_data.rent_amount,
-        apartment_size=rental_data.apartment_size,
-        apartment_type=rental_data.apartment_type,
-        rent_type=rental_data.rent_type,
+    # Get AI price suggestion for "looking" listings or if no price provided
+    suggested_price = None
+    if data.listing_type == "looking" or not data.rent_amount:
+        if data.apartment_size:
+            price_request = AIPriceRequest(
+                neighborhood=neighborhood,
+                apartment_type=data.apartment_type,
+                apartment_size=data.apartment_size,
+                rent_type=data.rent_type,
+                furnished=data.furnished,
+                building_type=data.building_type
+            )
+            suggested_price = await suggest_ai_price(price_request)
+    
+    listing = Listing(
+        listing_type=data.listing_type,
+        lat=data.lat,
+        lng=data.lng,
+        neighborhood=neighborhood,
+        rent_amount=data.rent_amount,
+        apartment_size=data.apartment_size,
+        apartment_type=data.apartment_type,
+        rent_type=data.rent_type,
         price_per_sqm=price_per_sqm,
-        furnished=rental_data.furnished,
-        contract_type=rental_data.contract_type,
-        move_in_year=rental_data.move_in_year,
-        building_type=rental_data.building_type,
-        lat=lat,
-        lng=lng
+        furnished=data.furnished,
+        building_type=data.building_type,
+        move_in_date=data.move_in_date,
+        description=data.description,
+        ai_description=ai_description,
+        suggested_price=suggested_price,
+        contact_email=data.contact_email,
+        contact_phone=data.contact_phone
     )
     
-    doc = rental.model_dump()
+    doc = listing.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     
-    await db.rentals.insert_one(doc)
-    return rental
+    await db.listings.insert_one(doc)
+    return listing
 
-@api_router.get("/rentals", response_model=List[Rental])
-async def get_rentals(
+@api_router.get("/listings", response_model=List[Listing])
+async def get_listings(
+    listing_type: Optional[str] = None,
     neighborhood: Optional[str] = None,
     min_rent: Optional[float] = None,
     max_rent: Optional[float] = None,
-    min_size: Optional[float] = None,
-    max_size: Optional[float] = None,
     apartment_type: Optional[str] = None,
     rent_type: Optional[str] = None,
     furnished: Optional[bool] = None,
     limit: int = Query(default=100, le=500)
 ):
-    """Get rental listings with optional filters"""
+    """Get listings with optional filters"""
     query = {}
     
+    if listing_type:
+        query["listing_type"] = listing_type
     if neighborhood:
         query["neighborhood"] = neighborhood
     if apartment_type:
@@ -186,93 +316,55 @@ async def get_rentals(
         if not query["rent_amount"]:
             del query["rent_amount"]
     
-    if min_size is not None or max_size is not None:
-        query["apartment_size"] = {}
-        if min_size is not None:
-            query["apartment_size"]["$gte"] = min_size
-        if max_size is not None:
-            query["apartment_size"]["$lte"] = max_size
-        if not query["apartment_size"]:
-            del query["apartment_size"]
+    listings = await db.listings.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
     
-    rentals = await db.rentals.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    for listing in listings:
+        if isinstance(listing.get('created_at'), str):
+            listing['created_at'] = datetime.fromisoformat(listing['created_at'])
     
-    for rental in rentals:
-        if isinstance(rental.get('created_at'), str):
-            rental['created_at'] = datetime.fromisoformat(rental['created_at'])
-    
-    return rentals
+    return listings
 
-@api_router.post("/rentals/{rental_id}/vote")
-async def vote_rental(rental_id: str, vote: VoteRequest):
-    """Upvote or downvote a rental listing"""
-    if vote.vote_type not in ["upvote", "downvote"]:
-        raise HTTPException(status_code=400, detail="vote_type must be 'upvote' or 'downvote'")
+@api_router.get("/listings/{listing_id}", response_model=Listing)
+async def get_listing(listing_id: str):
+    """Get a single listing by ID"""
+    listing = await db.listings.find_one({"id": listing_id}, {"_id": 0})
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
     
-    field = "upvotes" if vote.vote_type == "upvote" else "downvotes"
-    result = await db.rentals.update_one(
-        {"id": rental_id},
-        {"$inc": {field: 1}}
-    )
+    if isinstance(listing.get('created_at'), str):
+        listing['created_at'] = datetime.fromisoformat(listing['created_at'])
     
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Rental not found")
-    
-    return {"success": True, "vote_type": vote.vote_type}
+    return listing
 
-@api_router.post("/check-overpaying", response_model=OverpayingResponse)
-async def check_overpaying(data: OverpayingRequest):
-    """Check if user is overpaying compared to similar listings"""
-    your_price_per_sqm = data.rent_amount / data.apartment_size
-    
-    # Find similar listings (same neighborhood, type, rent_type)
-    query = {
-        "neighborhood": data.neighborhood,
-        "apartment_type": data.apartment_type,
-        "rent_type": data.rent_type
-    }
-    
-    similar = await db.rentals.find(query, {"_id": 0, "price_per_sqm": 1}).to_list(500)
-    
-    if not similar:
-        # Fall back to just neighborhood
-        query = {"neighborhood": data.neighborhood, "rent_type": data.rent_type}
-        similar = await db.rentals.find(query, {"_id": 0, "price_per_sqm": 1}).to_list(500)
-    
-    if not similar:
-        # Use all data of same rent type
-        query = {"rent_type": data.rent_type}
-        similar = await db.rentals.find(query, {"_id": 0, "price_per_sqm": 1}).to_list(500)
-    
-    if not similar:
-        raise HTTPException(status_code=404, detail="Not enough data to compare")
-    
-    prices = sorted([s["price_per_sqm"] for s in similar])
-    avg_price = sum(prices) / len(prices)
-    median_price = prices[len(prices) // 2]
-    
-    diff_percent = ((your_price_per_sqm - avg_price) / avg_price) * 100
-    
-    if diff_percent < -10:
-        status = "good_deal"
-    elif diff_percent <= 10:
-        status = "fair"
-    else:
-        status = "overpaying"
-    
-    return OverpayingResponse(
-        your_price_per_sqm=round(your_price_per_sqm, 2),
-        average_price_per_sqm=round(avg_price, 2),
-        median_price_per_sqm=round(median_price, 2),
-        difference_percent=round(diff_percent, 1),
-        status=status,
-        similar_listings_count=len(similar)
-    )
+@api_router.delete("/listings/{listing_id}")
+async def delete_listing(listing_id: str):
+    """Delete a listing"""
+    result = await db.listings.delete_one({"id": listing_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    return {"success": True, "message": "Listing deleted"}
+
+@api_router.post("/ai/generate-description")
+async def generate_description(data: AIDescriptionRequest):
+    """Generate AI description for a listing"""
+    description = await generate_ai_description(data)
+    if not description:
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+    return {"description": description}
+
+@api_router.post("/ai/suggest-price")
+async def suggest_price(data: AIPriceRequest):
+    """Get AI-suggested price for a listing"""
+    price = await suggest_ai_price(data)
+    if price is None:
+        raise HTTPException(status_code=503, detail="Could not generate price suggestion")
+    return {"suggested_price": price}
 
 @api_router.get("/stats/neighborhoods", response_model=List[NeighborhoodStats])
 async def get_neighborhood_stats():
     """Get average price per sqm for each neighborhood"""
     pipeline = [
+        {"$match": {"listing_type": "offering", "price_per_sqm": {"$exists": True, "$ne": None}}},
         {"$group": {
             "_id": "$neighborhood",
             "avg_price_per_sqm": {"$avg": "$price_per_sqm"},
@@ -280,7 +372,7 @@ async def get_neighborhood_stats():
         }}
     ]
     
-    results = await db.rentals.aggregate(pipeline).to_list(100)
+    results = await db.listings.aggregate(pipeline).to_list(100)
     
     stats = []
     for r in results:
@@ -299,99 +391,42 @@ async def get_neighborhood_stats():
 
 @api_router.post("/seed")
 async def seed_data():
-    """Seed the database with sample Berlin rental data"""
-    # Check if data already exists
-    count = await db.rentals.count_documents({})
+    """Seed the database with sample Berlin listings"""
+    count = await db.listings.count_documents({})
     if count > 0:
         return {"message": f"Database already has {count} listings", "seeded": False}
     
-    sample_data = [
-        # Kreuzberg - trendy, mid-high prices
-        {"neighborhood": "Kreuzberg", "rent_amount": 850, "apartment_size": 45, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Kreuzberg", "rent_amount": 1200, "apartment_size": 65, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Kreuzberg", "rent_amount": 650, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "kaltmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2022},
-        {"neighborhood": "Kreuzberg", "rent_amount": 550, "apartment_size": 18, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Kreuzberg", "rent_amount": 1450, "apartment_size": 80, "apartment_type": "3+ Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        
-        # Neukölln - more affordable
-        {"neighborhood": "Neukölln", "rent_amount": 700, "apartment_size": 50, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Neukölln", "rent_amount": 950, "apartment_size": 70, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Neukölln", "rent_amount": 450, "apartment_size": 15, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Neukölln", "rent_amount": 520, "apartment_size": 45, "apartment_type": "1 Zimmer", "rent_type": "kaltmiete", "furnished": False, "building_type": "neubau", "move_in_year": 2022},
-        
-        # Prenzlauer Berg - family-friendly, higher prices
-        {"neighborhood": "Prenzlauer Berg", "rent_amount": 1100, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Prenzlauer Berg", "rent_amount": 1600, "apartment_size": 90, "apartment_type": "3+ Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Prenzlauer Berg", "rent_amount": 900, "apartment_size": 40, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "neubau", "move_in_year": 2024},
-        {"neighborhood": "Prenzlauer Berg", "rent_amount": 600, "apartment_size": 20, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2023},
-        
-        # Mitte - central, expensive
-        {"neighborhood": "Mitte", "rent_amount": 1300, "apartment_size": 50, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "neubau", "move_in_year": 2024},
-        {"neighborhood": "Mitte", "rent_amount": 1800, "apartment_size": 75, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Mitte", "rent_amount": 2200, "apartment_size": 100, "apartment_type": "3+ Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "neubau", "move_in_year": 2024},
-        {"neighborhood": "Mitte", "rent_amount": 700, "apartment_size": 22, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        
-        # Friedrichshain - young, moderate prices
-        {"neighborhood": "Friedrichshain", "rent_amount": 800, "apartment_size": 45, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Friedrichshain", "rent_amount": 1100, "apartment_size": 60, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Friedrichshain", "rent_amount": 500, "apartment_size": 17, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Friedrichshain", "rent_amount": 580, "apartment_size": 50, "apartment_type": "2 Zimmer", "rent_type": "kaltmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2022},
-        
-        # Charlottenburg - upscale, expensive
-        {"neighborhood": "Charlottenburg", "rent_amount": 1400, "apartment_size": 70, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Charlottenburg", "rent_amount": 1900, "apartment_size": 95, "apartment_type": "3+ Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Charlottenburg", "rent_amount": 950, "apartment_size": 35, "apartment_type": "studio", "rent_type": "warmmiete", "furnished": True, "building_type": "neubau", "move_in_year": 2024},
-        
-        # Wedding - affordable
-        {"neighborhood": "Wedding", "rent_amount": 650, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Wedding", "rent_amount": 500, "apartment_size": 40, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Wedding", "rent_amount": 380, "apartment_size": 14, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Wedding", "rent_amount": 850, "apartment_size": 75, "apartment_type": "3+ Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2022},
-        
-        # Schöneberg - moderate-high
-        {"neighborhood": "Schöneberg", "rent_amount": 1000, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Schöneberg", "rent_amount": 750, "apartment_size": 38, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Schöneberg", "rent_amount": 1350, "apartment_size": 85, "apartment_type": "3+ Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2024},
-        
-        # Tempelhof - moderate
-        {"neighborhood": "Tempelhof", "rent_amount": 800, "apartment_size": 60, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Tempelhof", "rent_amount": 600, "apartment_size": 45, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "neubau", "move_in_year": 2024},
-        {"neighborhood": "Tempelhof", "rent_amount": 420, "apartment_size": 16, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        
-        # Moabit - affordable
-        {"neighborhood": "Moabit", "rent_amount": 700, "apartment_size": 50, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Moabit", "rent_amount": 900, "apartment_size": 65, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Moabit", "rent_amount": 450, "apartment_size": 15, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        
-        # Pankow - family friendly, moderate
-        {"neighborhood": "Pankow", "rent_amount": 950, "apartment_size": 70, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "neubau", "move_in_year": 2024},
-        {"neighborhood": "Pankow", "rent_amount": 1200, "apartment_size": 90, "apartment_type": "3+ Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "neubau", "move_in_year": 2023},
-        {"neighborhood": "Pankow", "rent_amount": 650, "apartment_size": 45, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2024},
-        
-        # Lichtenberg - affordable
-        {"neighborhood": "Lichtenberg", "rent_amount": 580, "apartment_size": 50, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Lichtenberg", "rent_amount": 450, "apartment_size": 35, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Lichtenberg", "rent_amount": 750, "apartment_size": 70, "apartment_type": "3+ Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2022},
-        
-        # Wilmersdorf - upscale
-        {"neighborhood": "Wilmersdorf", "rent_amount": 1100, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Wilmersdorf", "rent_amount": 850, "apartment_size": 40, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "move_in_year": 2024},
-        
-        # Steglitz - moderate
-        {"neighborhood": "Steglitz", "rent_amount": 900, "apartment_size": 65, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
-        {"neighborhood": "Steglitz", "rent_amount": 700, "apartment_size": 50, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "neubau", "move_in_year": 2024},
-        
-        # Treptow - moderate-affordable
-        {"neighborhood": "Treptow", "rent_amount": 750, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2024},
-        {"neighborhood": "Treptow", "rent_amount": 550, "apartment_size": 40, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "move_in_year": 2023},
+    sample_offerings = [
+        {"neighborhood": "Kreuzberg", "rent_amount": 850, "apartment_size": 45, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Cozy altbau apartment in vibrant Kreuzberg. Close to parks and cafes."},
+        {"neighborhood": "Kreuzberg", "rent_amount": 1200, "apartment_size": 65, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "contact_email": "landlord@example.com"},
+        {"neighborhood": "Neukölln", "rent_amount": 700, "apartment_size": 50, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau"},
+        {"neighborhood": "Neukölln", "rent_amount": 550, "apartment_size": 18, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "contact_phone": "+49 170 1234567"},
+        {"neighborhood": "Prenzlauer Berg", "rent_amount": 1100, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau"},
+        {"neighborhood": "Mitte", "rent_amount": 1300, "apartment_size": 50, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "neubau"},
+        {"neighborhood": "Friedrichshain", "rent_amount": 800, "apartment_size": 45, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau"},
+        {"neighborhood": "Charlottenburg", "rent_amount": 1400, "apartment_size": 70, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau"},
+        {"neighborhood": "Wedding", "rent_amount": 650, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau"},
+        {"neighborhood": "Schöneberg", "rent_amount": 1000, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau"},
     ]
     
-    for data in sample_data:
-        rental_create = RentalCreate(**data)
+    sample_looking = [
+        {"neighborhood": "Kreuzberg", "apartment_size": 40, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "description": "Student looking for a quiet place near public transport.", "contact_email": "student@example.com"},
+        {"neighborhood": "Neukölln", "apartment_size": 60, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "description": "Young couple searching for their first apartment together."},
+        {"neighborhood": "Mitte", "apartment_size": 20, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "description": "Expat looking for a furnished room in central location."},
+    ]
+    
+    import random
+    
+    # Add offerings
+    for data in sample_offerings:
         coords = BERLIN_NEIGHBORHOODS[data["neighborhood"]]
-        lat, lng = add_jitter(coords["lat"], coords["lng"])
+        lat = coords["lat"] + random.uniform(-0.005, 0.005)
+        lng = coords["lng"] + random.uniform(-0.008, 0.008)
         
-        rental = Rental(
+        listing = Listing(
+            listing_type="offering",
+            lat=lat,
+            lng=lng,
             neighborhood=data["neighborhood"],
             rent_amount=data["rent_amount"],
             apartment_size=data["apartment_size"],
@@ -399,18 +434,40 @@ async def seed_data():
             rent_type=data["rent_type"],
             price_per_sqm=round(data["rent_amount"] / data["apartment_size"], 2),
             furnished=data.get("furnished"),
-            contract_type=data.get("contract_type"),
-            move_in_year=data.get("move_in_year"),
             building_type=data.get("building_type"),
-            lat=lat,
-            lng=lng
+            description=data.get("description"),
+            contact_email=data.get("contact_email"),
+            contact_phone=data.get("contact_phone")
         )
         
-        doc = rental.model_dump()
+        doc = listing.model_dump()
         doc['created_at'] = doc['created_at'].isoformat()
-        await db.rentals.insert_one(doc)
+        await db.listings.insert_one(doc)
     
-    return {"message": f"Seeded {len(sample_data)} rental listings", "seeded": True}
+    # Add looking listings
+    for data in sample_looking:
+        coords = BERLIN_NEIGHBORHOODS[data["neighborhood"]]
+        lat = coords["lat"] + random.uniform(-0.005, 0.005)
+        lng = coords["lng"] + random.uniform(-0.008, 0.008)
+        
+        listing = Listing(
+            listing_type="looking",
+            lat=lat,
+            lng=lng,
+            neighborhood=data["neighborhood"],
+            apartment_size=data.get("apartment_size"),
+            apartment_type=data["apartment_type"],
+            rent_type=data["rent_type"],
+            furnished=data.get("furnished"),
+            description=data.get("description"),
+            contact_email=data.get("contact_email")
+        )
+        
+        doc = listing.model_dump()
+        doc['created_at'] = doc['created_at'].isoformat()
+        await db.listings.insert_one(doc)
+    
+    return {"message": f"Seeded {len(sample_offerings) + len(sample_looking)} listings", "seeded": True}
 
 # Include the router in the main app
 app.include_router(api_router)

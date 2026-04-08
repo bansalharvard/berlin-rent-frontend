@@ -5,7 +5,7 @@ import sys
 import json
 from datetime import datetime
 
-class BerlinRentAPITester:
+class BerlinMarketplaceAPITester:
     def __init__(self, base_url="https://wohnungsmarkt.preview.emergentagent.com"):
         self.base_url = base_url
         self.api_url = f"{base_url}/api"
@@ -40,6 +40,8 @@ class BerlinRentAPITester:
                 response = requests.post(url, json=data, headers=headers, timeout=10)
             elif method == 'PUT':
                 response = requests.put(url, json=data, headers=headers, timeout=10)
+            elif method == 'DELETE':
+                response = requests.delete(url, headers=headers, timeout=10)
 
             success = response.status_code == expected_status
             
@@ -84,31 +86,55 @@ class BerlinRentAPITester:
         """Test seed endpoint"""
         return self.run_test("Seed Data", "POST", "seed", 200)
 
-    def test_rentals_endpoint(self):
-        """Test rentals endpoint"""
-        success, data = self.run_test("Get All Rentals", "GET", "rentals", 200)
+    def test_listings_endpoint(self):
+        """Test listings endpoint"""
+        success, data = self.run_test("Get All Listings", "GET", "listings", 200)
         if success and isinstance(data, list):
-            if len(data) >= 40:  # Should have around 49 seeded listings
-                self.log_test("Rentals Count", True, f"Found {len(data)} listings")
+            if len(data) >= 10:  # Should have around 13 seeded listings
+                self.log_test("Listings Count", True, f"Found {len(data)} listings")
             else:
-                self.log_test("Rentals Count", False, f"Expected ~49, got {len(data)}")
+                self.log_test("Listings Count", False, f"Expected ~13, got {len(data)}")
             
-            # Check structure of first rental
+            # Check structure of first listing
             if data:
-                rental = data[0]
-                required_fields = ['id', 'neighborhood', 'rent_amount', 'apartment_size', 
-                                 'apartment_type', 'rent_type', 'price_per_sqm', 'lat', 'lng']
-                if all(field in rental for field in required_fields):
-                    self.log_test("Rental Structure", True)
+                listing = data[0]
+                required_fields = ['id', 'listing_type', 'neighborhood', 'apartment_type', 
+                                 'rent_type', 'lat', 'lng', 'created_at']
+                if all(field in listing for field in required_fields):
+                    self.log_test("Listing Structure", True)
                 else:
-                    missing = [f for f in required_fields if f not in rental]
-                    self.log_test("Rental Structure", False, f"Missing fields: {missing}")
+                    missing = [f for f in required_fields if f not in listing]
+                    self.log_test("Listing Structure", False, f"Missing fields: {missing}")
+                
+                # Check listing types
+                if listing['listing_type'] in ['offering', 'looking']:
+                    self.log_test("Listing Type Valid", True)
+                else:
+                    self.log_test("Listing Type Valid", False, f"Invalid type: {listing['listing_type']}")
         return success, data
 
-    def test_rentals_filters(self):
-        """Test rental filtering"""
+    def test_listings_filters(self):
+        """Test listing filtering"""
+        # Test listing type filter
+        success, data = self.run_test("Filter by Listing Type (offering)", "GET", "listings", 200, 
+                                    params={"listing_type": "offering"})
+        if success and data:
+            if all(r['listing_type'] == 'offering' for r in data):
+                self.log_test("Offering Filter Works", True)
+            else:
+                self.log_test("Offering Filter Works", False, "Wrong listing type in results")
+
+        # Test looking filter
+        success, data = self.run_test("Filter by Listing Type (looking)", "GET", "listings", 200, 
+                                    params={"listing_type": "looking"})
+        if success and data:
+            if all(r['listing_type'] == 'looking' for r in data):
+                self.log_test("Looking Filter Works", True)
+            else:
+                self.log_test("Looking Filter Works", False, "Wrong listing type in results")
+
         # Test neighborhood filter
-        success, data = self.run_test("Filter by Neighborhood", "GET", "rentals", 200, 
+        success, data = self.run_test("Filter by Neighborhood", "GET", "listings", 200, 
                                     params={"neighborhood": "Kreuzberg"})
         if success and data:
             if all(r['neighborhood'] == 'Kreuzberg' for r in data):
@@ -117,7 +143,7 @@ class BerlinRentAPITester:
                 self.log_test("Neighborhood Filter Works", False, "Wrong neighborhood in results")
 
         # Test apartment type filter
-        success, data = self.run_test("Filter by Apartment Type", "GET", "rentals", 200,
+        success, data = self.run_test("Filter by Apartment Type", "GET", "listings", 200,
                                     params={"apartment_type": "1 Zimmer"})
         if success and data:
             if all(r['apartment_type'] == '1 Zimmer' for r in data):
@@ -126,7 +152,7 @@ class BerlinRentAPITester:
                 self.log_test("Apartment Type Filter Works", False, "Wrong apartment type in results")
 
         # Test rent type filter
-        success, data = self.run_test("Filter by Rent Type", "GET", "rentals", 200,
+        success, data = self.run_test("Filter by Rent Type", "GET", "listings", 200,
                                     params={"rent_type": "warmmiete"})
         if success and data:
             if all(r['rent_type'] == 'warmmiete' for r in data):
@@ -134,18 +160,12 @@ class BerlinRentAPITester:
             else:
                 self.log_test("Rent Type Filter Works", False, "Wrong rent type in results")
 
-        # Test price range filter
-        success, data = self.run_test("Filter by Price Range", "GET", "rentals", 200,
-                                    params={"min_rent": 500, "max_rent": 1000})
-        if success and data:
-            if all(500 <= r['rent_amount'] <= 1000 for r in data):
-                self.log_test("Price Range Filter Works", True)
-            else:
-                self.log_test("Price Range Filter Works", False, "Price outside range in results")
-
-    def test_create_rental(self):
-        """Test creating a new rental"""
-        rental_data = {
+    def test_create_offering_listing(self):
+        """Test creating a new offering listing"""
+        listing_data = {
+            "listing_type": "offering",
+            "lat": 52.4993,
+            "lng": 13.4035,
             "neighborhood": "Kreuzberg",
             "rent_amount": 850.0,
             "apartment_size": 45.0,
@@ -153,54 +173,93 @@ class BerlinRentAPITester:
             "rent_type": "warmmiete",
             "furnished": False,
             "building_type": "altbau",
-            "move_in_year": 2024
+            "description": "Test offering listing",
+            "contact_email": "test@example.com"
         }
         
-        success, data = self.run_test("Create Rental", "POST", "rentals", 200, data=rental_data)
+        success, data = self.run_test("Create Offering Listing", "POST", "listings", 200, data=listing_data)
         if success and isinstance(data, dict):
-            if 'id' in data and data['neighborhood'] == 'Kreuzberg':
-                self.log_test("Rental Creation Structure", True)
-                return data['id']  # Return ID for voting test
+            if 'id' in data and data['listing_type'] == 'offering':
+                self.log_test("Offering Creation Structure", True)
+                return data['id']  # Return ID for further tests
             else:
-                self.log_test("Rental Creation Structure", False, "Missing ID or wrong data")
+                self.log_test("Offering Creation Structure", False, "Missing ID or wrong data")
         return None
 
-    def test_vote_rental(self, rental_id):
-        """Test voting on a rental"""
-        if not rental_id:
-            self.log_test("Vote Test Skipped", False, "No rental ID available")
-            return
-
-        # Test upvote
-        vote_data = {"vote_type": "upvote"}
-        success, data = self.run_test("Upvote Rental", "POST", f"rentals/{rental_id}/vote", 200, data=vote_data)
-        
-        # Test downvote
-        vote_data = {"vote_type": "downvote"}
-        success, data = self.run_test("Downvote Rental", "POST", f"rentals/{rental_id}/vote", 200, data=vote_data)
-
-    def test_check_overpaying(self):
-        """Test overpaying check endpoint"""
-        overpaying_data = {
-            "neighborhood": "Kreuzberg",
-            "rent_amount": 850.0,
-            "apartment_size": 45.0,
+    def test_create_looking_listing(self):
+        """Test creating a new looking listing"""
+        listing_data = {
+            "listing_type": "looking",
+            "lat": 52.4811,
+            "lng": 13.4353,
+            "neighborhood": "Neukölln",
+            "apartment_size": 40.0,
             "apartment_type": "1 Zimmer",
-            "rent_type": "warmmiete"
+            "rent_type": "warmmiete",
+            "furnished": False,
+            "description": "Test looking listing",
+            "contact_email": "looking@example.com"
         }
         
-        success, data = self.run_test("Check Overpaying", "POST", "check-overpaying", 200, data=overpaying_data)
+        success, data = self.run_test("Create Looking Listing", "POST", "listings", 200, data=listing_data)
         if success and isinstance(data, dict):
-            required_fields = ['your_price_per_sqm', 'average_price_per_sqm', 'status', 'similar_listings_count']
-            if all(field in data for field in required_fields):
-                self.log_test("Overpaying Response Structure", True)
-                if data['status'] in ['good_deal', 'fair', 'overpaying']:
-                    self.log_test("Overpaying Status Valid", True)
-                else:
-                    self.log_test("Overpaying Status Valid", False, f"Invalid status: {data['status']}")
+            if 'id' in data and data['listing_type'] == 'looking':
+                self.log_test("Looking Creation Structure", True)
+                return data['id']  # Return ID for further tests
             else:
-                missing = [f for f in required_fields if f not in data]
-                self.log_test("Overpaying Response Structure", False, f"Missing fields: {missing}")
+                self.log_test("Looking Creation Structure", False, "Missing ID or wrong data")
+        return None
+
+    def test_get_single_listing(self, listing_id):
+        """Test getting a single listing by ID"""
+        if not listing_id:
+            self.log_test("Get Single Listing Skipped", False, "No listing ID available")
+            return
+        
+        success, data = self.run_test("Get Single Listing", "GET", f"listings/{listing_id}", 200)
+        if success and isinstance(data, dict):
+            if data.get('id') == listing_id:
+                self.log_test("Single Listing ID Match", True)
+            else:
+                self.log_test("Single Listing ID Match", False, "ID mismatch")
+
+    def test_ai_generate_description(self):
+        """Test AI description generation"""
+        desc_data = {
+            "listing_type": "offering",
+            "neighborhood": "Kreuzberg",
+            "apartment_type": "1 Zimmer",
+            "apartment_size": 45.0,
+            "rent_amount": 850.0,
+            "rent_type": "warmmiete",
+            "furnished": False,
+            "building_type": "altbau"
+        }
+        
+        success, data = self.run_test("AI Generate Description", "POST", "ai/generate-description", 200, data=desc_data)
+        if success and isinstance(data, dict):
+            if 'description' in data and data['description']:
+                self.log_test("AI Description Generated", True, f"Generated: {data['description'][:50]}...")
+            else:
+                self.log_test("AI Description Generated", False, "No description in response")
+
+    def test_ai_suggest_price(self):
+        """Test AI price suggestion"""
+        price_data = {
+            "neighborhood": "Kreuzberg",
+            "apartment_type": "1 Zimmer",
+            "apartment_size": 45.0,
+            "rent_type": "warmmiete",
+            "furnished": False,
+            "building_type": "altbau"
+        }
+        
+        success, data = self.run_test("AI Suggest Price", "POST", "ai/suggest-price", 200, data=price_data)
+        if success and isinstance(data, dict):
+            if 'suggested_price' in data and isinstance(data['suggested_price'], (int, float)):
+                self.log_test("AI Price Suggested", True, f"Suggested: €{data['suggested_price']}")
+            else:
+                self.log_test("AI Price Suggested", False, "No valid price in response")
 
     def test_neighborhood_stats(self):
         """Test neighborhood stats endpoint"""
@@ -215,9 +274,19 @@ class BerlinRentAPITester:
                     missing = [f for f in required_fields if f not in stat]
                     self.log_test("Neighborhood Stats Structure", False, f"Missing fields: {missing}")
 
+    def test_delete_listing(self, listing_id):
+        """Test deleting a listing"""
+        if not listing_id:
+            self.log_test("Delete Listing Skipped", False, "No listing ID available")
+            return
+        
+        success, data = self.run_test("Delete Listing", "DELETE", f"listings/{listing_id}", 200)
+        if success:
+            self.log_test("Listing Deleted Successfully", True)
+
     def run_all_tests(self):
         """Run all API tests"""
-        print(f"🧪 Testing Berlin.rent API at {self.base_url}")
+        print(f"🧪 Testing Berlin Marketplace API at {self.base_url}")
         print("=" * 60)
         
         # Test basic endpoints
@@ -225,19 +294,29 @@ class BerlinRentAPITester:
         self.test_neighborhoods_endpoint()
         self.test_seed_endpoint()
         
-        # Test rentals
-        self.test_rentals_endpoint()
-        self.test_rentals_filters()
+        # Test listings
+        self.test_listings_endpoint()
+        self.test_listings_filters()
         
-        # Test rental creation and voting
-        rental_id = self.test_create_rental()
-        self.test_vote_rental(rental_id)
+        # Test listing creation
+        offering_id = self.test_create_offering_listing()
+        looking_id = self.test_create_looking_listing()
         
-        # Test overpaying check
-        self.test_check_overpaying()
+        # Test single listing retrieval
+        self.test_get_single_listing(offering_id)
+        
+        # Test AI features
+        self.test_ai_generate_description()
+        self.test_ai_suggest_price()
         
         # Test stats
         self.test_neighborhood_stats()
+        
+        # Test deletion (cleanup)
+        if offering_id:
+            self.test_delete_listing(offering_id)
+        if looking_id:
+            self.test_delete_listing(looking_id)
         
         # Print summary
         print("\n" + "=" * 60)
@@ -251,7 +330,7 @@ class BerlinRentAPITester:
             return 1
 
 def main():
-    tester = BerlinRentAPITester()
+    tester = BerlinMarketplaceAPITester()
     return tester.run_all_tests()
 
 if __name__ == "__main__":
