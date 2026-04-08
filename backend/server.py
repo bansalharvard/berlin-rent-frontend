@@ -48,6 +48,16 @@ BERLIN_NEIGHBORHOODS = {
 }
 
 # Define Models
+class Comment(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    text: str
+    author_name: str = "Anonymous"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class CommentCreate(BaseModel):
+    text: str
+    author_name: Optional[str] = "Anonymous"
+
 class ListingCreate(BaseModel):
     listing_type: str  # "offering" or "looking"
     lat: float
@@ -85,6 +95,7 @@ class Listing(BaseModel):
     suggested_price: Optional[float] = None
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
+    comments: List[dict] = []
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AIDescriptionRequest(BaseModel):
@@ -343,6 +354,98 @@ async def delete_listing(listing_id: str):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Listing not found")
     return {"success": True, "message": "Listing deleted"}
+
+@api_router.post("/listings/{listing_id}/comments")
+async def add_comment(listing_id: str, comment: CommentCreate):
+    """Add a comment to a listing"""
+    comment_doc = {
+        "id": str(uuid.uuid4()),
+        "text": comment.text,
+        "author_name": comment.author_name or "Anonymous",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.listings.update_one(
+        {"id": listing_id},
+        {"$push": {"comments": comment_doc}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    
+    return {"success": True, "comment": comment_doc}
+
+@api_router.get("/listings/{listing_id}/comments")
+async def get_comments(listing_id: str):
+    """Get all comments for a listing"""
+    listing = await db.listings.find_one({"id": listing_id}, {"_id": 0, "comments": 1})
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    return listing.get("comments", [])
+
+@api_router.get("/stats/dashboard")
+async def get_dashboard_stats():
+    """Get dashboard statistics for buyers and sellers"""
+    # Get all listings with rent
+    all_listings = await db.listings.find(
+        {"rent_amount": {"$exists": True, "$ne": None}},
+        {"_id": 0}
+    ).to_list(500)
+    
+    if not all_listings:
+        return {"error": "No data available"}
+    
+    # Highest and lowest rent
+    sorted_by_rent = sorted([l for l in all_listings if l.get("rent_amount")], key=lambda x: x["rent_amount"])
+    
+    # Average rent by neighborhood
+    neighborhood_stats = {}
+    for listing in all_listings:
+        if listing.get("rent_amount") and listing.get("neighborhood"):
+            hood = listing["neighborhood"]
+            if hood not in neighborhood_stats:
+                neighborhood_stats[hood] = {"total": 0, "count": 0}
+            neighborhood_stats[hood]["total"] += listing["rent_amount"]
+            neighborhood_stats[hood]["count"] += 1
+    
+    avg_by_neighborhood = [
+        {"neighborhood": k, "avg_rent": round(v["total"] / v["count"]), "count": v["count"]}
+        for k, v in neighborhood_stats.items()
+    ]
+    avg_by_neighborhood.sort(key=lambda x: x["avg_rent"], reverse=True)
+    
+    # Average rent by apartment type
+    type_stats = {}
+    for listing in all_listings:
+        if listing.get("rent_amount") and listing.get("apartment_type"):
+            apt_type = listing["apartment_type"]
+            if apt_type not in type_stats:
+                type_stats[apt_type] = {"total": 0, "count": 0}
+            type_stats[apt_type]["total"] += listing["rent_amount"]
+            type_stats[apt_type]["count"] += 1
+    
+    avg_by_type = [
+        {"type": k, "avg_rent": round(v["total"] / v["count"]), "count": v["count"]}
+        for k, v in type_stats.items()
+    ]
+    avg_by_type.sort(key=lambda x: x["avg_rent"], reverse=True)
+    
+    # Price per sqm stats
+    sqm_prices = [l["price_per_sqm"] for l in all_listings if l.get("price_per_sqm")]
+    avg_price_sqm = round(sum(sqm_prices) / len(sqm_prices), 2) if sqm_prices else 0
+    
+    return {
+        "total_listings": len(all_listings),
+        "highest_rent": sorted_by_rent[-1] if sorted_by_rent else None,
+        "lowest_rent": sorted_by_rent[0] if sorted_by_rent else None,
+        "avg_by_neighborhood": avg_by_neighborhood,
+        "avg_by_type": avg_by_type,
+        "avg_price_per_sqm": avg_price_sqm,
+        "price_range": {
+            "min": sorted_by_rent[0]["rent_amount"] if sorted_by_rent else 0,
+            "max": sorted_by_rent[-1]["rent_amount"] if sorted_by_rent else 0
+        }
+    }
 
 @api_router.post("/ai/generate-description")
 async def generate_description(data: AIDescriptionRequest):
