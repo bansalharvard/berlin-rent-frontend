@@ -9,21 +9,38 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 
+# Load .env file if it exists (for local development)
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+env_file = ROOT_DIR / '.env'
+if env_file.exists():
+    load_dotenv(env_file)
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB connection - use .get() with defaults for build time
+mongo_url = os.environ.get('MONGO_URL', '')
+db_name = os.environ.get('DB_NAME', 'berlin_rent')
+
+# Initialize MongoDB client only if URL is provided
+client = None
+db = None
+if mongo_url:
+    client = AsyncIOMotorClient(mongo_url)
+    db = client[db_name]
 
 # LLM API Key
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
-# Create the main app without a prefix
-app = FastAPI()
+# Try to import emergent integrations (optional)
+try:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    HAS_LLM = True
+except ImportError:
+    HAS_LLM = False
+    LlmChat = None
+    UserMessage = None
+
+# Create the main app
+app = FastAPI(title="Berlin.rent API", version="1.0.0")
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
@@ -59,16 +76,16 @@ class CommentCreate(BaseModel):
     author_name: Optional[str] = "Anonymous"
 
 class ListingCreate(BaseModel):
-    listing_type: str  # "offering" or "looking"
+    listing_type: str
     lat: float
     lng: float
     neighborhood: Optional[str] = None
     rent_amount: Optional[float] = None
     apartment_size: Optional[float] = None
-    apartment_type: str  # WG room, studio, 1 Zimmer, 2 Zimmer, 3+ Zimmer
-    rent_type: str  # warmmiete, kaltmiete
+    apartment_type: str
+    rent_type: str
     furnished: Optional[bool] = None
-    building_type: Optional[str] = None  # altbau, neubau
+    building_type: Optional[str] = None
     move_in_date: Optional[str] = None
     description: Optional[str] = None
     contact_email: Optional[str] = None
@@ -136,14 +153,14 @@ def find_nearest_neighborhood(lat: float, lng: float) -> str:
 
 # AI Helper Functions
 async def generate_ai_description(data: AIDescriptionRequest) -> str:
-    if not EMERGENT_LLM_KEY:
+    if not EMERGENT_LLM_KEY or not HAS_LLM:
         return ""
     
     try:
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"desc-{uuid.uuid4()}",
-            system_message="You are a helpful real estate assistant in Berlin. Write concise, friendly listing descriptions in 2-3 sentences. Be specific about the neighborhood character."
+            system_message="You are a helpful real estate assistant in Berlin. Write concise, friendly listing descriptions in 2-3 sentences."
         ).with_model("openai", "gpt-4o-mini")
         
         listing_type_text = "rental offering" if data.listing_type == "offering" else "apartment search"
@@ -167,7 +184,9 @@ Keep it under 50 words, friendly and informative."""
         return ""
 
 async def suggest_ai_price(data: AIPriceRequest) -> Optional[float]:
-    # First, get market data from database
+    if not db:
+        return None
+        
     query = {"neighborhood": data.neighborhood, "rent_type": data.rent_type, "listing_type": "offering"}
     similar = await db.listings.find(query, {"_id": 0, "price_per_sqm": 1}).to_list(50)
     
@@ -175,7 +194,6 @@ async def suggest_ai_price(data: AIPriceRequest) -> Optional[float]:
         prices = [s["price_per_sqm"] for s in similar if s.get("price_per_sqm")]
         if prices:
             avg_price_per_sqm = sum(prices) / len(prices)
-            # Adjust for furnished/building type
             multiplier = 1.0
             if data.furnished:
                 multiplier += 0.15
@@ -187,13 +205,12 @@ async def suggest_ai_price(data: AIPriceRequest) -> Optional[float]:
             suggested = round(avg_price_per_sqm * multiplier * data.apartment_size)
             return suggested
     
-    # Fallback: Use AI for estimation if not enough data
-    if EMERGENT_LLM_KEY:
+    if EMERGENT_LLM_KEY and HAS_LLM:
         try:
             chat = LlmChat(
                 api_key=EMERGENT_LLM_KEY,
                 session_id=f"price-{uuid.uuid4()}",
-                system_message="You are a Berlin rental market expert. Provide realistic rent estimates based on 2024-2025 market data. Respond with ONLY a number, no text."
+                system_message="You are a Berlin rental market expert. Provide realistic rent estimates. Respond with ONLY a number, no text."
             ).with_model("openai", "gpt-4o-mini")
             
             prompt = f"""Estimate monthly {data.rent_type} rent in EUR for:
@@ -206,7 +223,6 @@ Reply with ONLY the number (e.g., 850)."""
 
             user_message = UserMessage(text=prompt)
             response = await chat.send_message(user_message)
-            # Extract number from response
             price = float(''.join(filter(lambda x: x.isdigit() or x == '.', response)))
             return round(price)
         except Exception as e:
@@ -217,11 +233,14 @@ Reply with ONLY the number (e.g., 850)."""
 # Routes
 @api_router.get("/")
 async def root():
-    return {"message": "Berlin.rent Marketplace API", "database": "MongoDB"}
+    return {"message": "Berlin.rent Marketplace API", "database": "MongoDB Atlas", "status": "running"}
+
+@api_router.get("/health")
+async def health():
+    return {"status": "healthy", "db_connected": db is not None}
 
 @api_router.get("/neighborhoods")
 async def get_neighborhoods():
-    """Get all Berlin neighborhoods with coordinates"""
     return [
         {"name": name, "lat": coords["lat"], "lng": coords["lng"]}
         for name, coords in BERLIN_NEIGHBORHOODS.items()
@@ -229,16 +248,15 @@ async def get_neighborhoods():
 
 @api_router.post("/listings", response_model=Listing)
 async def create_listing(data: ListingCreate):
-    """Create a new listing (offering or looking)"""
-    # Find neighborhood from coordinates
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
     neighborhood = data.neighborhood or find_nearest_neighborhood(data.lat, data.lng)
     
-    # Calculate price per sqm if applicable
     price_per_sqm = None
     if data.rent_amount and data.apartment_size:
         price_per_sqm = round(data.rent_amount / data.apartment_size, 2)
     
-    # Generate AI description if not provided
     ai_description = None
     if not data.description:
         ai_desc_request = AIDescriptionRequest(
@@ -253,7 +271,6 @@ async def create_listing(data: ListingCreate):
         )
         ai_description = await generate_ai_description(ai_desc_request)
     
-    # Get AI price suggestion for "looking" listings or if no price provided
     suggested_price = None
     if data.listing_type == "looking" or not data.rent_amount:
         if data.apartment_size:
@@ -304,7 +321,9 @@ async def get_listings(
     furnished: Optional[bool] = None,
     limit: int = Query(default=100, le=500)
 ):
-    """Get listings with optional filters"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
     query = {}
     
     if listing_type:
@@ -337,7 +356,9 @@ async def get_listings(
 
 @api_router.get("/listings/{listing_id}", response_model=Listing)
 async def get_listing(listing_id: str):
-    """Get a single listing by ID"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
     listing = await db.listings.find_one({"id": listing_id}, {"_id": 0})
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -349,7 +370,9 @@ async def get_listing(listing_id: str):
 
 @api_router.delete("/listings/{listing_id}")
 async def delete_listing(listing_id: str):
-    """Delete a listing"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
     result = await db.listings.delete_one({"id": listing_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -357,7 +380,9 @@ async def delete_listing(listing_id: str):
 
 @api_router.post("/listings/{listing_id}/comments")
 async def add_comment(listing_id: str, comment: CommentCreate):
-    """Add a comment to a listing"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
     comment_doc = {
         "id": str(uuid.uuid4()),
         "text": comment.text,
@@ -377,7 +402,9 @@ async def add_comment(listing_id: str, comment: CommentCreate):
 
 @api_router.get("/listings/{listing_id}/comments")
 async def get_comments(listing_id: str):
-    """Get all comments for a listing"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
     listing = await db.listings.find_one({"id": listing_id}, {"_id": 0, "comments": 1})
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -385,8 +412,9 @@ async def get_comments(listing_id: str):
 
 @api_router.get("/stats/dashboard")
 async def get_dashboard_stats():
-    """Get dashboard statistics for buyers and sellers"""
-    # Get all listings with rent
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
     all_listings = await db.listings.find(
         {"rent_amount": {"$exists": True, "$ne": None}},
         {"_id": 0}
@@ -395,10 +423,8 @@ async def get_dashboard_stats():
     if not all_listings:
         return {"error": "No data available"}
     
-    # Highest and lowest rent
     sorted_by_rent = sorted([l for l in all_listings if l.get("rent_amount")], key=lambda x: x["rent_amount"])
     
-    # Average rent by neighborhood
     neighborhood_stats = {}
     for listing in all_listings:
         if listing.get("rent_amount") and listing.get("neighborhood"):
@@ -414,7 +440,6 @@ async def get_dashboard_stats():
     ]
     avg_by_neighborhood.sort(key=lambda x: x["avg_rent"], reverse=True)
     
-    # Average rent by apartment type
     type_stats = {}
     for listing in all_listings:
         if listing.get("rent_amount") and listing.get("apartment_type"):
@@ -430,7 +455,6 @@ async def get_dashboard_stats():
     ]
     avg_by_type.sort(key=lambda x: x["avg_rent"], reverse=True)
     
-    # Price per sqm stats
     sqm_prices = [l["price_per_sqm"] for l in all_listings if l.get("price_per_sqm")]
     avg_price_sqm = round(sum(sqm_prices) / len(sqm_prices), 2) if sqm_prices else 0
     
@@ -447,25 +471,11 @@ async def get_dashboard_stats():
         }
     }
 
-@api_router.post("/ai/generate-description")
-async def generate_description(data: AIDescriptionRequest):
-    """Generate AI description for a listing"""
-    description = await generate_ai_description(data)
-    if not description:
-        raise HTTPException(status_code=503, detail="AI service unavailable")
-    return {"description": description}
-
-@api_router.post("/ai/suggest-price")
-async def suggest_price(data: AIPriceRequest):
-    """Get AI-suggested price for a listing"""
-    price = await suggest_ai_price(data)
-    if price is None:
-        raise HTTPException(status_code=503, detail="Could not generate price suggestion")
-    return {"suggested_price": price}
-
 @api_router.get("/stats/neighborhoods", response_model=List[NeighborhoodStats])
 async def get_neighborhood_stats():
-    """Get average price per sqm for each neighborhood"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
     pipeline = [
         {"$match": {"listing_type": "offering", "price_per_sqm": {"$exists": True, "$ne": None}}},
         {"$group": {
@@ -492,15 +502,33 @@ async def get_neighborhood_stats():
     
     return sorted(stats, key=lambda x: x.avg_price_per_sqm, reverse=True)
 
+@api_router.post("/ai/generate-description")
+async def generate_description(data: AIDescriptionRequest):
+    description = await generate_ai_description(data)
+    if not description:
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+    return {"description": description}
+
+@api_router.post("/ai/suggest-price")
+async def suggest_price(data: AIPriceRequest):
+    price = await suggest_ai_price(data)
+    if price is None:
+        raise HTTPException(status_code=503, detail="Could not generate price suggestion")
+    return {"suggested_price": price}
+
 @api_router.post("/seed")
 async def seed_data():
-    """Seed the database with sample Berlin listings"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
     count = await db.listings.count_documents({})
     if count > 0:
         return {"message": f"Database already has {count} listings", "seeded": False}
     
+    import random
+    
     sample_offerings = [
-        {"neighborhood": "Kreuzberg", "rent_amount": 850, "apartment_size": 45, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Cozy altbau apartment in vibrant Kreuzberg. Close to parks and cafes."},
+        {"neighborhood": "Kreuzberg", "rent_amount": 850, "apartment_size": 45, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Cozy altbau apartment in vibrant Kreuzberg."},
         {"neighborhood": "Kreuzberg", "rent_amount": 1200, "apartment_size": 65, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "contact_email": "landlord@example.com"},
         {"neighborhood": "Neukölln", "rent_amount": 700, "apartment_size": 50, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau"},
         {"neighborhood": "Neukölln", "rent_amount": 550, "apartment_size": 18, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "contact_phone": "+49 170 1234567"},
@@ -513,14 +541,11 @@ async def seed_data():
     ]
     
     sample_looking = [
-        {"neighborhood": "Kreuzberg", "apartment_size": 40, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "description": "Student looking for a quiet place near public transport.", "contact_email": "student@example.com"},
-        {"neighborhood": "Neukölln", "apartment_size": 60, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "description": "Young couple searching for their first apartment together."},
-        {"neighborhood": "Mitte", "apartment_size": 20, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "description": "Expat looking for a furnished room in central location."},
+        {"neighborhood": "Kreuzberg", "apartment_size": 40, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "description": "Student looking for a quiet place.", "contact_email": "student@example.com"},
+        {"neighborhood": "Neukölln", "apartment_size": 60, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "description": "Young couple searching for their first apartment."},
+        {"neighborhood": "Mitte", "apartment_size": 20, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "description": "Expat looking for a furnished room."},
     ]
     
-    import random
-    
-    # Add offerings
     for data in sample_offerings:
         coords = BERLIN_NEIGHBORHOODS[data["neighborhood"]]
         lat = coords["lat"] + random.uniform(-0.005, 0.005)
@@ -547,7 +572,6 @@ async def seed_data():
         doc['created_at'] = doc['created_at'].isoformat()
         await db.listings.insert_one(doc)
     
-    # Add looking listings
     for data in sample_looking:
         coords = BERLIN_NEIGHBORHOODS[data["neighborhood"]]
         lat = coords["lat"] + random.uniform(-0.005, 0.005)
@@ -575,10 +599,11 @@ async def seed_data():
 # Include the router in the main app
 app.include_router(api_router)
 
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -592,4 +617,5 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    if client:
+        client.close()
