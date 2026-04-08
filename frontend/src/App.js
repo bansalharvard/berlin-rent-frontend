@@ -882,7 +882,7 @@ function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-gray-900">berlin.rent</h1>
-            <p className="text-xs text-gray-500 -mt-0.5">Marketplace • MongoDB Atlas</p>
+            <p className="text-xs text-gray-500 -mt-0.5">dein Marktplatz</p>
           </div>
         </div>
         
