@@ -11,9 +11,11 @@ Build a simple, modern web application inspired by bengaluru.rent that helps use
 
 ## User Choices
 - Map: Leaflet with OpenStreetMap (free, no API key needed)
-- Database: MongoDB
+- Database: MongoDB Atlas (user-provided cloud connection)
 - "Am I Overpaying?": Simple comparison (no AI)
 - Pre-loaded sample data: Yes (49 Berlin rental listings)
+- Backend deployed to Render
+- Frontend deploying to Vercel
 
 ## User Personas
 1. **Renters** - Looking to understand fair rental prices in Berlin neighborhoods
@@ -31,54 +33,59 @@ Build a simple, modern web application inspired by bengaluru.rent that helps use
 - [x] "Am I Overpaying?" estimator
 - [x] Community upvote/downvote
 - [x] Building type indicator (Altbau/Neubau)
+- [x] AI-powered price suggestions & description generation
+- [x] Dashboard with market insights
+- [x] WhatsApp sharing
+- [x] Comments on listings
 
-## What's Been Implemented (January 2026)
+## What's Been Implemented (Jan-Apr 2026)
 
-### Backend (FastAPI + MongoDB)
-- `GET /api/neighborhoods` - Returns 15 Berlin neighborhoods with coordinates
-- `GET /api/rentals` - Get listings with filters (neighborhood, type, rent_type, price range)
-- `POST /api/rentals` - Create anonymous rental listing
-- `POST /api/rentals/{id}/vote` - Upvote/downvote listings
-- `POST /api/check-overpaying` - Compare user's rent to market average
-- `GET /api/stats/neighborhoods` - Aggregated stats per neighborhood
-- `POST /api/seed` - Seed 49 sample Berlin rental listings
+### Backend (FastAPI + MongoDB Atlas)
+- `GET /api/listings` - Get listings with filters
+- `POST /api/listings` - Create anonymous rental listing
+- `POST /api/listings/{id}/comments` - Add comments
+- `GET /api/stats/dashboard` - Dashboard market stats
+- `GET /api/neighborhoods` - Returns 15 Berlin neighborhoods
+- `POST /api/seed` - Seed sample listings
+- `POST /api/ai/suggest-price` - AI price suggestion
+- `POST /api/ai/generate-description` - AI description generation
 
-### Frontend (React + Leaflet)
-- Split-screen layout (55% map / 45% listings)
-- Interactive Leaflet map with CartoDB Positron tiles
-- Color-coded pins (green=good deal, red=expensive, vermilion=average)
-- Filter bar with search, dropdowns, toggle controls
-- Listing cards with price, €/m², neighborhood, badges
-- Add Rental modal form
-- Am I Overpaying modal with comparison result
-- Stats summary (listings count, avg rent, avg price/m²)
-- Mobile-responsive with bottom action buttons
+### Frontend (React + Leaflet + Tailwind)
+- Split-screen layout (map + listings)
+- Interactive Leaflet map with color-coded pins
+- Filter bar with search, type toggle, neighborhood, apartment type
+- Listing cards with price, size, contact info
+- Create listing modal (3-step wizard)
+- View listing modal with comments
+- Dashboard modal with charts
+- WhatsApp sharing
+- Mobile responsive with bottom action bar
 
-### Design System
-- Swiss/High-Contrast archetype
-- Cabinet Grotesk headings + IBM Plex Mono body
-- Vermilion (#FF3800) accent color
-- Sharp corners (rounded-none)
-- 1px borders, harsh shadows on hover
+### Deployment
+- Backend: Deployed to Render (DONE)
+- Frontend: Vercel deployment FIX PROVIDED (Apr 11 2026)
+  - Root cause: Bloated package.json with ~40 unused radix-ui packages causing ajv version conflicts
+  - Fix: Minimal package.json with only required dependencies + changed @/ imports to relative paths
+  - Build verified locally: SUCCESS
 
 ## Prioritized Backlog
 
-### P0 (Must Have) - COMPLETED
-- [x] Core MVP features
-
 ### P1 (Should Have)
+- [ ] "Am I Overpaying" badges on individual listing cards
 - [ ] Heatmap overlay showing expensive vs affordable areas
 - [ ] Mobile bottom sheet for listings (improved UX)
-- [ ] Search suggestions/autocomplete for neighborhoods
 
 ### P2 (Nice to Have)
 - [ ] Historical price trends per neighborhood
 - [ ] Export data as CSV
-- [ ] Embed widget for other sites
 - [ ] Dark mode toggle
+- [ ] Search suggestions/autocomplete
 
-## Next Tasks
-1. Add heatmap visualization for price density
-2. Improve mobile experience with draggable bottom sheet
-3. Add more detailed filters (size range slider, move-in year)
-4. Implement duplicate detection for submissions
+## Architecture
+- `/app/backend/` - FastAPI backend (also deployed as /app/deploy-backend/)
+- `/app/frontend/` - Original React frontend (Emergent preview)
+- `/app/vercel-frontend/` - Clean Vercel-ready frontend (verified build)
+
+## 3rd Party Integrations
+- MongoDB Atlas (user-provided connection string)
+- OpenAI GPT-4o-mini via Emergent LLM Key (AI suggestions)
