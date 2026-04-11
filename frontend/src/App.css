@@ -36,6 +36,24 @@
   font-size: 14px;
 }
 
+/* Tap-to-add hint banner */
+.tap-hint-banner {
+  background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+  color: #E2E8F0;
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.tap-hint-banner svg {
+  color: #F97316;
+  flex-shrink: 0;
+}
+
 /* Main content area */
 .main-content {
   flex: 1;
@@ -123,6 +141,15 @@
 .listing-card.looking:hover {
   border-color: #8B5CF6;
   background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%);
+}
+
+.listing-card.sharing_rent {
+  border-left: 4px solid #F97316;
+}
+
+.listing-card.sharing_rent:hover {
+  border-color: #F97316;
+  background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%);
 }
 
 /* Price display */
@@ -218,6 +245,11 @@
   background: #F5F3FF;
 }
 
+.type-card.active.sharing_rent {
+  border-color: #F97316;
+  background: #FFF7ED;
+}
+
 .type-icon {
   width: 48px;
   height: 48px;
@@ -234,6 +266,10 @@
 
 .type-icon.looking {
   background: #EDE9FE;
+}
+
+.type-icon.sharing_rent {
+  background: #FFF7ED;
 }
 
 /* AI button */

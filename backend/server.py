@@ -59,7 +59,7 @@ class CommentCreate(BaseModel):
     author_name: Optional[str] = "Anonymous"
 
 class ListingCreate(BaseModel):
-    listing_type: str  # "offering" or "looking"
+    listing_type: str  # "offering", "looking", or "sharing_rent"
     lat: float
     lng: float
     neighborhood: Optional[str] = None
@@ -146,7 +146,7 @@ async def generate_ai_description(data: AIDescriptionRequest) -> str:
             system_message="You are a helpful real estate assistant in Berlin. Write concise, friendly listing descriptions in 2-3 sentences. Be specific about the neighborhood character."
         ).with_model("openai", "gpt-4o-mini")
         
-        listing_type_text = "rental offering" if data.listing_type == "offering" else "apartment search"
+        listing_type_text = "rental offering" if data.listing_type == "offering" else "apartment search" if data.listing_type == "looking" else "rent data point shared by a tenant"
         furnished_text = "furnished" if data.furnished else "unfurnished" if data.furnished is False else ""
         building_text = f"{data.building_type} building" if data.building_type else ""
         
@@ -253,9 +253,9 @@ async def create_listing(data: ListingCreate):
         )
         ai_description = await generate_ai_description(ai_desc_request)
     
-    # Get AI price suggestion for "looking" listings or if no price provided
+    # Get AI price suggestion for "looking" listings or if no price provided (not for sharing_rent)
     suggested_price = None
-    if data.listing_type == "looking" or not data.rent_amount:
+    if (data.listing_type == "looking" or not data.rent_amount) and data.listing_type != "sharing_rent":
         if data.apartment_size:
             price_request = AIPriceRequest(
                 neighborhood=neighborhood,
@@ -467,7 +467,7 @@ async def suggest_price(data: AIPriceRequest):
 async def get_neighborhood_stats():
     """Get average price per sqm for each neighborhood"""
     pipeline = [
-        {"$match": {"listing_type": "offering", "price_per_sqm": {"$exists": True, "$ne": None}}},
+        {"$match": {"rent_type": {"$exists": True}, "price_per_sqm": {"$exists": True, "$ne": None}}},
         {"$group": {
             "_id": "$neighborhood",
             "avg_price_per_sqm": {"$avg": "$price_per_sqm"},
@@ -516,6 +516,19 @@ async def seed_data():
         {"neighborhood": "Kreuzberg", "apartment_size": 40, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "description": "Student looking for a quiet place near public transport.", "contact_email": "student@example.com"},
         {"neighborhood": "Neukölln", "apartment_size": 60, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "description": "Young couple searching for their first apartment together."},
         {"neighborhood": "Mitte", "apartment_size": 20, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "description": "Expat looking for a furnished room in central location."},
+    ]
+    
+    sample_sharing = [
+        {"neighborhood": "Kreuzberg", "rent_amount": 780, "apartment_size": 42, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Living here since 2022. Great Kiez, reasonable rent for the area."},
+        {"neighborhood": "Neukölln", "rent_amount": 620, "apartment_size": 48, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Renewed contract in 2024. Landlord tried to raise but Mietpreisbremse helped."},
+        {"neighborhood": "Prenzlauer Berg", "rent_amount": 1050, "apartment_size": 62, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Moved in 2023. Altbau charm but heating costs are brutal in winter."},
+        {"neighborhood": "Mitte", "rent_amount": 1450, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": True, "building_type": "neubau", "description": "Paying premium for location. Furnished neubau near Hackescher Markt."},
+        {"neighborhood": "Friedrichshain", "rent_amount": 520, "apartment_size": 16, "apartment_type": "WG room", "rent_type": "warmmiete", "furnished": True, "building_type": "altbau", "description": "WG room in a 4-person flat. Shared kitchen and bath. Good vibes."},
+        {"neighborhood": "Wedding", "rent_amount": 580, "apartment_size": 50, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Super affordable for the size. Wedding is underrated."},
+        {"neighborhood": "Charlottenburg", "rent_amount": 1100, "apartment_size": 58, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Old money neighborhood. Quiet, green, well-connected to U-Bahn."},
+        {"neighborhood": "Tempelhof", "rent_amount": 750, "apartment_size": 55, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Near Tempelhofer Feld. Best park in Berlin right at my doorstep."},
+        {"neighborhood": "Schöneberg", "rent_amount": 900, "apartment_size": 48, "apartment_type": "1 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Cozy altbau near Winterfeldtplatz. Saturday market is amazing."},
+        {"neighborhood": "Moabit", "rent_amount": 680, "apartment_size": 52, "apartment_type": "2 Zimmer", "rent_type": "warmmiete", "furnished": False, "building_type": "altbau", "description": "Hidden gem. Close to Tiergarten and very multicultural."},
     ]
     
     import random
@@ -570,7 +583,32 @@ async def seed_data():
         doc['created_at'] = doc['created_at'].isoformat()
         await db.listings.insert_one(doc)
     
-    return {"message": f"Seeded {len(sample_offerings) + len(sample_looking)} listings", "seeded": True}
+    # Add sharing rent data
+    for data in sample_sharing:
+        coords = BERLIN_NEIGHBORHOODS[data["neighborhood"]]
+        lat = coords["lat"] + random.uniform(-0.005, 0.005)
+        lng = coords["lng"] + random.uniform(-0.008, 0.008)
+        
+        listing = Listing(
+            listing_type="sharing_rent",
+            lat=lat,
+            lng=lng,
+            neighborhood=data["neighborhood"],
+            rent_amount=data["rent_amount"],
+            apartment_size=data["apartment_size"],
+            apartment_type=data["apartment_type"],
+            rent_type=data["rent_type"],
+            price_per_sqm=round(data["rent_amount"] / data["apartment_size"], 2),
+            furnished=data.get("furnished"),
+            building_type=data.get("building_type"),
+            description=data.get("description")
+        )
+        
+        doc = listing.model_dump()
+        doc['created_at'] = doc['created_at'].isoformat()
+        await db.listings.insert_one(doc)
+    
+    return {"message": f"Seeded {len(sample_offerings) + len(sample_looking) + len(sample_sharing)} listings", "seeded": True}
 
 # Include the router in the main app
 app.include_router(api_router)
