@@ -306,10 +306,10 @@ const CreateListingModal = ({ isOpen, onClose, pinLocation, neighborhoods, onSub
 
   if (!isOpen) return null;
 
-  const isLastStep = formData.listing_type === 'sharing_rent' ? step === 2 : step === 3;
-  const totalSteps = formData.listing_type === 'sharing_rent' ? 2 : 3;
+  const totalSteps = 3;
+  const isLastStep = step === 3;
   const stepLabels = formData.listing_type === 'sharing_rent'
-    ? { 1: "What are you sharing?", 2: "Rent Details" }
+    ? { 1: "What are you sharing?", 2: "Rent Details", 3: "Contact (Optional)" }
     : { 1: "What are you posting?", 2: "Listing Details", 3: "Contact Info" };
 
   return (
@@ -347,7 +347,7 @@ const CreateListingModal = ({ isOpen, onClose, pinLocation, neighborhoods, onSub
                     <div className="text-sm text-gray-500">{
                       key === 'offering' ? "List your apartment or room for rent" :
                       key === 'looking' ? "Post what you're searching for" :
-                      "Help others know real rents — anonymous, no contact needed"
+                      "Help others know real rents — anonymous by default"
                     }</div>
                   </div>
                 </div>
@@ -420,10 +420,15 @@ const CreateListingModal = ({ isOpen, onClose, pinLocation, neighborhoods, onSub
             </div>
           )}
 
-          {step === 3 && formData.listing_type !== 'sharing_rent' && (
+          {step === 3 && (
             <div className="space-y-4">
               <div className="p-4 bg-orange-50 rounded-xl mb-4">
-                <p className="text-sm text-orange-700"><strong>Optional:</strong> Add contact info so interested people can reach you.</p>
+                <p className="text-sm text-orange-700">
+                  {formData.listing_type === 'sharing_rent'
+                    ? <><strong>Totally optional.</strong> Add your contact if you'd like others to reach out with questions about the area or building.</>
+                    : <><strong>Optional:</strong> Add contact info so interested people can reach you.</>
+                  }
+                </p>
               </div>
               <div className="form-field">
                 <label className="flex items-center gap-2"><Mail size={14} /> Email (optional)</label>
