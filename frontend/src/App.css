@@ -10,17 +10,30 @@
 
 /* Header */
 .app-header {
-  height: 72px;
+  height: 56px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid rgba(229, 231, 235, 0.5);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 12px;
   position: sticky;
   top: 0;
   z-index: 1000;
+}
+
+@media (min-width: 768px) {
+  .app-header {
+    height: 64px;
+    padding: 0 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-header {
+    height: 72px;
+  }
 }
 
 /* Pin instruction banner */
@@ -40,13 +53,21 @@
 .tap-hint-banner {
   background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
   color: #E2E8F0;
-  padding: 8px 24px;
+  padding: 6px 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   font-weight: 500;
-  font-size: 13px;
+  font-size: 11px;
+}
+
+@media (min-width: 768px) {
+  .tap-hint-banner {
+    padding: 8px 24px;
+    font-size: 13px;
+    gap: 8px;
+  }
 }
 
 .tap-hint-banner svg {
@@ -69,9 +90,15 @@
 
 /* Map section */
 .map-section {
-  height: 50vh;
+  height: 40vh;
   position: relative;
   background: #E5E7EB;
+}
+
+@media (min-width: 768px) {
+  .map-section {
+    height: 50vh;
+  }
 }
 
 @media (min-width: 1024px) {
@@ -99,25 +126,49 @@
 
 /* Filter bar */
 .filter-bar {
-  padding: 16px 20px;
+  padding: 10px 12px;
   background: white;
   border-bottom: 1px solid var(--border);
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-wrap: nowrap;
+  gap: 8px;
   align-items: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.filter-bar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .filter-bar {
+    padding: 16px 20px;
+    flex-wrap: wrap;
+    gap: 10px;
+    overflow-x: visible;
+  }
 }
 
 /* Listing card */
 .listing-card {
-  margin: 12px 16px;
-  padding: 20px;
+  margin: 8px 10px;
+  padding: 14px;
   background: white;
-  border-radius: 20px;
+  border-radius: 16px;
   border: 2px solid transparent;
   cursor: pointer;
   transition: all 300ms ease-out;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+@media (min-width: 768px) {
+  .listing-card {
+    margin: 12px 16px;
+    padding: 20px;
+    border-radius: 20px;
+  }
 }
 
 .listing-card:hover {
@@ -155,16 +206,28 @@
 /* Price display */
 .price-large {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text-primary);
 }
 
+@media (min-width: 768px) {
+  .price-large {
+    font-size: 28px;
+  }
+}
+
 .price-sqm {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-secondary);
+}
+
+@media (min-width: 768px) {
+  .price-sqm {
+    font-size: 13px;
+  }
 }
 
 /* Badge styles */
@@ -301,8 +364,8 @@
 /* Built by Sachin */
 .built-by {
   position: absolute;
-  bottom: 20px;
-  left: 16px;
+  bottom: 12px;
+  right: 12px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
   border-radius: 8px;
@@ -311,7 +374,7 @@
   color: #6B7280;
   z-index: 1000;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  display: none;
+  display: block;
 }
 
 .built-by span {
@@ -319,11 +382,11 @@
   color: #F97316;
 }
 
-/* Map legend - adjusted position */
+/* Map legend - moved higher */
 .map-legend {
   position: absolute;
-  bottom: 20px;
-  left: 16px;
+  top: 12px;
+  left: 12px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
   border-radius: 12px;
@@ -335,13 +398,8 @@
 }
 
 @media (min-width: 1024px) {
-  .built-by {
-    display: block;
-    bottom: 20px;
-    left: 125px;
-  }
   .map-legend {
-    bottom: 20px;
+    top: 12px;
   }
 }
 
@@ -385,42 +443,76 @@
   background: rgba(17, 24, 39, 0.6);
   backdrop-filter: blur(8px);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   z-index: 2000;
-  padding: 16px;
+  padding: 0;
+}
+
+@media (min-width: 768px) {
+  .form-modal {
+    align-items: center;
+    padding: 16px;
+  }
 }
 
 .form-content {
   background: white;
-  border-radius: 24px;
+  border-radius: 20px 20px 0 0;
   width: 100%;
-  max-width: 480px;
-  max-height: 90vh;
+  max-height: 92vh;
   overflow-y: auto;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 }
 
+@media (min-width: 768px) {
+  .form-content {
+    border-radius: 24px;
+    max-width: 480px;
+    max-height: 90vh;
+  }
+}
+
 .form-header {
-  padding: 24px;
+  padding: 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  border-radius: 24px 24px 0 0;
+  border-radius: 20px 20px 0 0;
+}
+
+@media (min-width: 768px) {
+  .form-header {
+    padding: 24px;
+    border-radius: 24px 24px 0 0;
+  }
 }
 
 .form-body {
-  padding: 24px;
+  padding: 16px;
+}
+
+@media (min-width: 768px) {
+  .form-body {
+    padding: 24px;
+  }
 }
 
 .form-footer {
-  padding: 20px 24px;
+  padding: 16px;
   border-top: 1px solid var(--border);
   display: flex;
   gap: 12px;
   background: #F9FAFB;
-  border-radius: 0 0 24px 24px;
+  border-radius: 0;
+}
+
+@media (min-width: 768px) {
+  .form-footer {
+    padding: 20px 24px;
+    border-radius: 0 0 24px 24px;
+  }
 }
 
 /* Form field */
@@ -472,8 +564,14 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 14px;
+  padding: 8px;
   border-right: 1px solid var(--border);
+}
+
+@media (min-width: 768px) {
+  .stat-item {
+    padding: 14px;
+  }
 }
 
 .stat-item:last-child {
@@ -482,18 +580,30 @@
 
 .stat-value {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
+@media (min-width: 768px) {
+  .stat-value {
+    font-size: 20px;
+  }
+}
+
 .stat-label {
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+@media (min-width: 768px) {
+  .stat-label {
+    font-size: 11px;
+  }
 }
 
 /* Button styles */
@@ -540,11 +650,18 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 8px 12px;
   background: var(--background);
   border: 1px solid transparent;
   border-radius: 12px;
   transition: all 200ms ease;
+  min-width: 120px;
+}
+
+@media (min-width: 768px) {
+  .search-input {
+    padding: 10px 16px;
+  }
 }
 
 .search-input:focus-within {
@@ -557,25 +674,39 @@
   border: none;
   background: transparent;
   outline: none;
-  font-size: 14px;
+  font-size: 13px;
   width: 100%;
+}
+
+@media (min-width: 768px) {
+  .search-input input {
+    font-size: 14px;
+  }
 }
 
 /* Filter select */
 .filter-select {
-  padding: 10px 16px;
-  padding-right: 36px;
+  padding: 8px 30px 8px 10px;
   background: white;
   border: 1px solid var(--border);
   border-radius: 12px;
   font-family: 'Manrope', sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 200ms ease;
   appearance: none;
+  white-space: nowrap;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 12px center;
+  background-position: right 8px center;
+}
+
+@media (min-width: 768px) {
+  .filter-select {
+    padding: 10px 36px 10px 16px;
+    font-size: 13px;
+    background-position: right 12px center;
+  }
 }
 
 .filter-select:focus {

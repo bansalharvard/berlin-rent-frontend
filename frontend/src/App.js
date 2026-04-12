@@ -701,20 +701,20 @@ function App() {
 
       {/* Header */}
       <header className="app-header" data-testid="app-header">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center">
-            <Home size={20} className="text-white" />
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0">
+            <Home size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-gray-900">berlin.rent</h1>
-            <p className="text-xs text-gray-500 -mt-0.5">real rents, real people</p>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-gray-900">berlin.rent</h1>
+            <p className="text-[10px] sm:text-xs text-gray-500 -mt-0.5 hidden sm:block">real rents, real people</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button className="btn btn-secondary hidden sm:flex" onClick={() => setShowDashboard(true)} data-testid="dashboard-btn">
             <BarChart3 size={18} /> Insights
           </button>
-          <div className="hidden sm:flex text-xs text-gray-400 items-center gap-1">
+          <div className="hidden lg:flex text-xs text-gray-400 items-center gap-1">
             <MapPin size={12} /> Click map to add
           </div>
         </div>
