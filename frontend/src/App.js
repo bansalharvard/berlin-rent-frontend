@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import "./App.css";
 import axios from "axios";
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from "react-leaflet";
@@ -36,10 +36,103 @@ const createPinIcon = () => L.divIcon({
   iconAnchor: [20, 20],
 });
 
-// Map Components
+// Map Click Handler
 const MapClickHandler = ({ onMapClick }) => {
   useMapEvents({ click: (e) => onMapClick(e.latlng) });
   return null;
+};
+
+// Map Search Component
+const MapSearch = ({ onSelect, neighborhoods }) => {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchRef = useRef(null);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const searchPlaces = useCallback(async (q) => {
+    if (!q || q.length < 2) { setResults([]); return; }
+
+    const neighborhoodMatches = neighborhoods
+      .filter(n => n.name.toLowerCase().includes(q.toLowerCase()))
+      .map(n => ({ name: n.name, lat: n.lat, lng: n.lng, type: 'neighborhood' }));
+
+    setResults(neighborhoodMatches);
+    setIsOpen(true);
+
+    if (q.length >= 3) {
+      setIsSearching(true);
+      try {
+        const res = await axios.get(`https://nominatim.openstreetmap.org/search`, {
+          params: { q: `${q}, Berlin, Germany`, format: 'json', limit: 5, addressdetails: 1 }
+        });
+        const osmResults = res.data
+          .filter(r => r.lat && r.lon)
+          .map(r => ({
+            name: r.display_name.split(',').slice(0, 2).join(', '),
+            lat: parseFloat(r.lat),
+            lng: parseFloat(r.lon),
+            type: 'place'
+          }));
+        setResults([...neighborhoodMatches, ...osmResults]);
+      } catch { /* keep neighborhood results */ }
+      finally { setIsSearching(false); }
+    }
+  }, [neighborhoods]);
+
+  const handleInput = (val) => {
+    setQuery(val);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => searchPlaces(val), 300);
+  };
+
+  const handleSelect = (result) => {
+    setQuery(result.name);
+    setIsOpen(false);
+    onSelect(result);
+  };
+
+  return (
+    <div className="map-search" ref={searchRef} data-testid="map-search">
+      <div className="map-search-input">
+        <Search size={16} className="text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search places in Berlin..."
+          value={query}
+          onChange={e => handleInput(e.target.value)}
+          onFocus={() => { if (results.length) setIsOpen(true); }}
+          data-testid="map-search-input"
+        />
+        {query && (
+          <button className="map-search-clear" onClick={() => { setQuery(''); setResults([]); setIsOpen(false); }}>
+            <X size={14} />
+          </button>
+        )}
+        {isSearching && <Loader2 size={14} className="animate-spin text-orange-500" />}
+      </div>
+      {isOpen && results.length > 0 && (
+        <div className="map-search-dropdown" data-testid="map-search-results">
+          {results.map((r, i) => (
+            <button key={i} className="map-search-result" onClick={() => handleSelect(r)} data-testid={`search-result-${i}`}>
+              {r.type === 'neighborhood' ? <MapPin size={14} className="text-orange-500 flex-shrink-0" /> : <Search size={14} className="text-gray-400 flex-shrink-0" />}
+              <span>{r.name}</span>
+              {r.type === 'neighborhood' && <span className="ml-auto text-[10px] text-orange-500 font-medium">BEZIRK</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 const MapUpdater = ({ center, zoom }) => {
@@ -634,6 +727,7 @@ function App() {
   const [showDashboard, setShowDashboard] = useState(false);
   const [selectedListing, setSelectedListing] = useState(null);
   const [mapCenter, setMapCenter] = useState(BERLIN_CENTER);
+  const [mapZoom, setMapZoom] = useState(BERLIN_ZOOM);
   const [filters, setFilters] = useState({ listingType: '', neighborhood: '', apartmentType: '', searchQuery: '' });
 
   const fetchData = useCallback(async () => {
@@ -689,6 +783,11 @@ function App() {
     setPinLocation(null);
   };
 
+  const handleMapSearch = (result) => {
+    setMapCenter([result.lat, result.lng]);
+    setMapZoom(result.type === 'neighborhood' ? 14 : 16);
+  };
+
   const handleShare = (listing) => {
     const typeLabel = LISTING_TYPES[listing.listing_type]?.label || 'Rent';
     const text = `${typeLabel} in ${listing.neighborhood}! ${listing.rent_amount ? `€${listing.rent_amount}/month` : ''} - ${listing.apartment_type}`;
@@ -732,9 +831,10 @@ function App() {
       {/* Main */}
       <main className="main-content">
         <div className="map-section" data-testid="map-section">
+          <MapSearch onSelect={handleMapSearch} neighborhoods={neighborhoods} />
           <MapContainer center={BERLIN_CENTER} zoom={BERLIN_ZOOM} style={{ height: '100%', width: '100%', cursor: 'crosshair' }}>
             <TileLayer attribution='&copy; <a href="https://carto.com/">CARTO</a>' url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
-            <MapUpdater center={mapCenter} zoom={filters.neighborhood ? 14 : BERLIN_ZOOM} />
+            <MapUpdater center={mapCenter} zoom={mapZoom} />
             <MapClickHandler onMapClick={handleMapClick} />
             {pinLocation && !showCreateModal && <Marker position={[pinLocation.lat, pinLocation.lng]} icon={createPinIcon()} />}
             {listings.map(listing => (
