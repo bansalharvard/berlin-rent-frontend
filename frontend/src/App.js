@@ -801,18 +801,23 @@ function App() {
   return (
     <div className="app-container" data-testid="app-container">
       <Toaster position="top-right" toastOptions={{ style: { borderRadius: '12px' } }} />
-
-      {/* Header */}
+{/* Header */}
       <header className="app-header" data-testid="app-header">
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0">
             <Home size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-gray-900">berlin.rent</h1>
-            <p className="text-[10px] sm:text-xs text-gray-500 -mt-0.5 hidden sm:block">real rents, real people</p>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-gray-900">berlinrently.de</h1>
+            <p className="text-[10px] sm:text-xs text-gray-500 -mt-0.5 hidden sm:block">Dein Marktplatz</p>
           </div>
         </div>
+
+        {/* Center (NEW) */}
+  <div className="hidden lg:block absolute left-1/2 -translate-x-1/2 text-xs text-gray-500">
+    No signup needed
+  </div>
+        
         <div className="flex items-center gap-2 sm:gap-3">
           <button className="btn btn-secondary" onClick={() => setShowDashboard(true)} data-testid="dashboard-btn">
             <BarChart3 size={18} /> <span className="hidden sm:inline">Insights</span>
