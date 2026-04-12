@@ -716,8 +716,8 @@ function App() {
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
-          <button className="btn btn-secondary hidden sm:flex" onClick={() => setShowDashboard(true)} data-testid="dashboard-btn">
-            <BarChart3 size={18} /> Insights
+          <button className="btn btn-secondary" onClick={() => setShowDashboard(true)} data-testid="dashboard-btn">
+            <BarChart3 size={18} /> <span className="hidden sm:inline">Insights</span>
           </button>
           <div className="hidden lg:flex text-xs text-gray-400 items-center gap-1">
             <MapPin size={12} /> Click map to add
@@ -782,13 +782,6 @@ function App() {
           )}
         </div>
       </main>
-
-      {/* Mobile bar */}
-      <div className="mobile-action-bar lg:hidden">
-        <button className="btn btn-secondary flex-1" onClick={() => setShowDashboard(true)} data-testid="mobile-insights-btn">
-          <BarChart3 size={18} /> Insights
-        </button>
-      </div>
 
       {/* Modals */}
       <CreateListingModal isOpen={showCreateModal} onClose={() => { setShowCreateModal(false); setPinLocation(null); }} pinLocation={pinLocation} neighborhoods={neighborhoods} onSubmit={handleCreateListing} />
