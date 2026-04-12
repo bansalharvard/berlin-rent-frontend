@@ -639,7 +639,6 @@ function App() {
   const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
-      await axios.post(`${API}/seed`);
       const [listingsRes, neighborhoodsRes] = await Promise.all([
         axios.get(`${API}/listings`),
         axios.get(`${API}/neighborhoods`)
